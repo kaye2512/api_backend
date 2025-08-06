@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Application NestJS
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nestjs-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://nestjs:password@postgres:5432/nestjs_db
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - app-network
+    volumes:
+      - ./logs:/app/logs
+
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: nestjs-postgres
+    environment:
+      POSTGRES_DB: nestjs_db
+      POSTGRES_USER: nestjs
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestjs -d nestjs_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Redis pour le cache/sessions
+  redis:
+    image: redis:7-alpine
+    container_name: nestjs-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Nginx comme reverse proxy (optionnel)
+  nginx:
+    image: nginx:alpine
+    container_name: nestjs-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge
